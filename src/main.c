@@ -1,10 +1,14 @@
-// Updated main.c with Mode 2 changed to Ocean Wave
-// (Full implementation will need previous code context; placeholder structure below)
+// FULL WORKING main.c WITH UPDATED MODES
+// Mode 1: Rainbow Wave
+// Mode 2: Ocean Wave
+// Mode 3: Pulse Wave
+// Mode 4: Sparkles (sound reactive on W104 DO)
 
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "ws2812.pio.h"
 #include <math.h>
+#include <stdlib.h>
 
 #define LED_PIN      2
 #define LED_COUNT    72
@@ -13,6 +17,9 @@
 #define SOUND_PIN    45
 #define BRIGHTNESS   50
 
+// -----------------------------
+// WS2812 Helper Functions
+// -----------------------------
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
 }
@@ -28,7 +35,7 @@ static inline void put_pixel_scaled(PIO pio, uint sm, uint8_t r, uint8_t g, uint
     pio_sm_put_blocking(pio, sm, urgb_u32(r, g, b));
 }
 
-// Rainbow helper (unchanged)
+// Rainbow helper
 static void color_wheel(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
     if (pos < 85) {
         *r = 255 - pos * 3;
@@ -47,7 +54,9 @@ static void color_wheel(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
     }
 }
 
-// MODE 1 (unchanged) - Rainbow Wave
+// -----------------------------
+// MODE 1 — Rainbow Wave
+// -----------------------------
 static void mode_rainbow_wave(PIO pio, uint sm) {
     static uint8_t t = 0;
     t++;
@@ -58,15 +67,16 @@ static void mode_rainbow_wave(PIO pio, uint sm) {
     }
 }
 
-// MODE 2 - NEW OCEAN WAVE MODE
+// -----------------------------
+// MODE 2 — Ocean Wave
+// -----------------------------
 static void mode_ocean_wave(PIO pio, uint sm) {
     static float t = 0;
-    t += 0.08f; // wave speed
+    t += 0.08f;
 
     for (int i = 0; i < LED_COUNT; i++) {
-        float wave = (sinf(t + (i * 0.25f)) + 1.0f) * 0.5f; // 0–1 smooth wave
+        float wave = (sinf(t + (i * 0.25f)) + 1.0f) * 0.5f;
 
-        // Ocean colors (deep blue → aqua → light blue)
         uint8_t r = 0;
         uint8_t g = (uint8_t)(50 + wave * 150);
         uint8_t b = (uint8_t)(100 + wave * 155);
@@ -75,13 +85,15 @@ static void mode_ocean_wave(PIO pio, uint sm) {
     }
 }
 
+// -----------------------------
 // MODE 3 — Pulse Wave
+// -----------------------------
 static void mode_pulse_wave(PIO pio, uint sm) {
     static float t = 0;
-    t += 0.10f; // speed of pulse
+    t += 0.10f;
 
     for (int i = 0; i < LED_COUNT; i++) {
-        float wave = (sinf(t - i * 0.15f) + 1.0f) * 0.5f; // 0–1
+        float wave = (sinf(t - i * 0.15f) + 1.0f) * 0.5f;
 
         uint8_t r = (uint8_t)(wave * 255);
         uint8_t g = (uint8_t)(wave * 80);
@@ -90,37 +102,45 @@ static void mode_pulse_wave(PIO pio, uint sm) {
         put_pixel_scaled(pio, sm, r, g, b);
     }
 }
-    else if (pos >= LED_COUNT - 1) { pos = LED_COUNT - 1; dir = -1; }
 
-    for (int i = 0; i < LED_COUNT; i++) {
-        int dist = abs(pos - i);
-        if (dist >= tail_len) {
-            put_pixel_scaled(pio, sm, 0, 0, 0);
-            continue;
-        }
-        int factor = tail_len - dist;
-
-        uint8_t r, g, b;
-        color_wheel((pos * 4) & 0xFF, &r, &g, &b);
-
-        r = (r * factor) / tail_len;
-        g = (g * factor) / tail_len;
-        b = (b * factor) / tail_len;
-
-        put_pixel_scaled(pio, sm, r, g, b);
-    }
-}
-
-// MODE 4 (unchanged placeholder) - Sound Sparkles
+// -----------------------------
+// MODE 4 — Sound Reactive Sparkles
+// -----------------------------
 static void mode_sound(PIO pio, uint sm) {
-    // placeholder sparkle logic
+    static uint8_t sr[LED_COUNT] = {0};
+    static uint8_t sg[LED_COUNT] = {0};
+    static uint8_t sb[LED_COUNT] = {0};
+
+    bool loud = (gpio_get(SOUND_PIN) == 0);
+
+    if (loud) {
+        for (int i = 0; i < 10; i++) {
+            int index = rand() % LED_COUNT;
+            sr[index] = 255;
+            sg[index] = 255;
+            sb[index] = 255;
+        }
+    } else {
+        if (rand() % 25 == 0) {
+            int index = rand() % LED_COUNT;
+            sr[index] = 100;
+            sg[index] = 100;
+            sb[index] = 150;
+        }
+    }
+
     for (int i = 0; i < LED_COUNT; i++) {
-        int sparkle = rand() % 100;
-        if (sparkle < 3) put_pixel_scaled(pio, sm, 255, 255, 255);
-        else put_pixel_scaled(pio, sm, 0, 0, 20);
+        if (sr[i] > 2) sr[i] -= 2;
+        if (sg[i] > 2) sg[i] -= 2;
+        if (sb[i] > 2) sb[i] -= 2;
+
+        put_pixel_scaled(pio, sm, sr[i], sg[i], sb[i]);
     }
 }
 
+// -----------------------------
+// MAIN
+// -----------------------------
 int main() {
     stdio_init_all();
 
@@ -132,6 +152,10 @@ int main() {
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
+
+    gpio_init(SOUND_PIN);
+    gpio_set_dir(SOUND_PIN, GPIO_IN);
+    gpio_pull_up(SOUND_PIN);
 
     int mode = 0;
 
@@ -145,9 +169,9 @@ int main() {
             }
         }
 
-        if (mode == 0) mode_rainbow_wave(pio, sm);
+        if (mode == 0)      mode_rainbow_wave(pio, sm);
         else if (mode == 1) mode_ocean_wave(pio, sm);
-        else if (mode == 2) mode_pulse_wave(pio, sm)
+        else if (mode == 2) mode_pulse_wave(pio, sm);
         else if (mode == 3) mode_sound(pio, sm);
 
         sleep_ms(20);
