@@ -1,8 +1,3 @@
-// FULL WORKING main.c (RP2350 / Proton)
-// LED_PIN = GP2, 72 WS2812 LEDs, BRIGHTNESS=50
-// BUTTON_PIN = GP10 cycles modes
-// MAX4466 OUT on GP46 using FREE-RUNNING ADC channel 5
-
 #include <stdlib.h>
 #include <math.h>
 #include "pico/stdlib.h"
@@ -15,14 +10,12 @@
 #define IS_RGBW      false
 #define BUTTON_PIN   10
 #define BRIGHTNESS   50
-
-// MAX4466 wiring: OUT -> GP46, mapped to ADC input 5
 #define MIC_GPIO     46
 #define MIC_ADC_CH   5
 
-// -----------------------------
-// WS2812 Helper Functions
-// -----------------------------
+
+// WS2812 Functions
+
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
 }
@@ -57,9 +50,9 @@ static void color_wheel(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
     }
 }
 
-// -----------------------------
-// MODE 1 — Rainbow Wave
-// -----------------------------
+
+// MODE 1 Rainbow Wave
+
 static void mode_rainbow_wave(PIO pio, uint sm) {
     static uint8_t t = 0;
     t++;
@@ -71,9 +64,9 @@ static void mode_rainbow_wave(PIO pio, uint sm) {
     }
 }
 
-// -----------------------------
-// MODE 2 — Rainbow VU Meter
-// -----------------------------
+
+// MODE 2 Rainbow VU Meter
+
 static void mode_rainbow_vu(PIO pio, uint sm) {
     static float smooth = 0;
 
@@ -98,9 +91,9 @@ static void mode_rainbow_vu(PIO pio, uint sm) {
     }
 }
 
-// -----------------------------
-// MODE 3 — Volume Heatmap (blue→red)
-// -----------------------------
+
+// MODE 3 Volume Intensity
+
 static void mode_heat(PIO pio, uint sm) {
     uint16_t raw = adc_hw->result;
     int centered = (int)raw - 1800;
@@ -118,9 +111,9 @@ static void mode_heat(PIO pio, uint sm) {
         put_pixel_scaled(pio, sm, r, g, b);
 }
 
-// -----------------------------
+
 // MAIN
-// -----------------------------
+
 int main() {
     stdio_init_all();
     srand((unsigned) time_us_32());
