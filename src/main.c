@@ -3,7 +3,9 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/adc.h"
+#include "hardware/gpio.h"
 #include "ws2812.pio.h"
+
 #define LED_PIN      2
 #define LED_COUNT    72
 #define IS_RGBW      false
@@ -12,7 +14,13 @@
 #define MIC_GPIO     45
 #define MIC_ADC_CH   5
 
-// WS2812 Helper Functions
+// Global mode 
+
+volatile int mode = 0;      
+volatile bool mode_changed = false;  
+
+
+// WS2812 Functions
 
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
@@ -63,7 +71,7 @@ static void mode_rainbow_wave(PIO pio, uint sm) {
 }
 
 
-// MODE 2 — Rainbow Sound Reactive
+// MODE 2 — Rainbow VU Meter (sound = number of LEDs)
 
 static void mode_rainbow_vu(PIO pio, uint sm) {
     static float smooth = 0;
@@ -109,19 +117,19 @@ static void mode_heat(PIO pio, uint sm) {
         put_pixel_scaled(pio, sm, r, g, b);
 }
 
-// MODE 4 — VU Meter with Heatmap Color
-// Length of bar = Volume
-// Color of bar  = Volume (Blue is quiet, Red is loud)
+
+// MODE 4 — VU Meter + Heat Color
+// Length = volume, color = volume
 
 static void mode_vu_heat_combo(PIO pio, uint sm) {
     static float smooth = 0;
-    
+
     uint16_t raw = adc_hw->result;
     int centered = (int)raw - 1800;
     if (centered < 0) centered = -centered;
 
     smooth = smooth * 0.85f + centered * 0.15f;
-    
+
     float level = smooth / 1000.0f;
     if (level < 0) level = 0;
     if (level > 1) level = 1;
@@ -141,18 +149,45 @@ static void mode_vu_heat_combo(PIO pio, uint sm) {
     }
 }
 
+
+// Button Interrupt
+
+void button_isr(uint gpio, uint32_t events) {
+    static uint32_t last_time = 0;
+    uint32_t now = time_us_32();
+
+    if (now - last_time < 200000) {
+        return;
+    }
+    last_time = now;
+
+    mode = (mode + 1) % 4;
+    mode_changed = true;
+}
+
+
 // MAIN
 
 int main() {
     stdio_init_all();
     srand((unsigned) time_us_32());
+
     PIO pio = pio0;
     const uint sm = 0;
     uint offset = pio_add_program(pio, &ws2812_program);
     ws2812_program_init(pio, sm, offset, LED_PIN, 800000, IS_RGBW);
+
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
+
+    gpio_set_irq_enabled_with_callback(
+        BUTTON_PIN,
+        GPIO_IRQ_EDGE_FALL,
+        true,
+        &button_isr
+    );
+
     adc_init();
     adc_hw->cs = ADC_CS_EN_BITS;
     gpio_set_function(MIC_GPIO, GPIO_FUNC_NULL);
@@ -165,15 +200,10 @@ int main() {
 
     hw_set_bits(&adc_hw->cs, ADC_CS_START_MANY_BITS);
 
-    int mode = 0;
-
     while (true) {
-        if (!gpio_get(BUTTON_PIN)) {
-            sleep_ms(40);
-            if (!gpio_get(BUTTON_PIN)) {
-                mode = (mode + 1) % 4;  // 0-2 only
-                while (!gpio_get(BUTTON_PIN)) sleep_ms(10);
-            }
+
+        if (mode_changed) {
+            mode_changed = false;
         }
 
         if (mode == 0)
@@ -183,7 +213,7 @@ int main() {
         else if (mode == 2)
             mode_heat(pio, sm);
         else if (mode == 3)
-        mode_vu_heat_combo(pio, sm);
+            mode_vu_heat_combo(pio, sm);
 
         sleep_ms(20);
     }
