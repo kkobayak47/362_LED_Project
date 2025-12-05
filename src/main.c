@@ -4,17 +4,15 @@
 #include "hardware/pio.h"
 #include "hardware/adc.h"
 #include "ws2812.pio.h"
-
 #define LED_PIN      2
 #define LED_COUNT    72
 #define IS_RGBW      false
 #define BUTTON_PIN   10
 #define BRIGHTNESS   50
-#define MIC_GPIO     46
+#define MIC_GPIO     45
 #define MIC_ADC_CH   5
 
-
-// WS2812 Functions
+// WS2812 Helper Functions
 
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
@@ -51,7 +49,7 @@ static void color_wheel(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
 }
 
 
-// MODE 1 Rainbow Wave
+// MODE 1 — Rainbow Wave
 
 static void mode_rainbow_wave(PIO pio, uint sm) {
     static uint8_t t = 0;
@@ -65,7 +63,7 @@ static void mode_rainbow_wave(PIO pio, uint sm) {
 }
 
 
-// MODE 2 Rainbow VU Meter
+// MODE 2 — Rainbow Sound Reactive
 
 static void mode_rainbow_vu(PIO pio, uint sm) {
     static float smooth = 0;
@@ -92,7 +90,7 @@ static void mode_rainbow_vu(PIO pio, uint sm) {
 }
 
 
-// MODE 3 Volume Intensity
+// MODE 3 — Volume Heatmap (blue→red)
 
 static void mode_heat(PIO pio, uint sm) {
     uint16_t raw = adc_hw->result;
@@ -111,25 +109,50 @@ static void mode_heat(PIO pio, uint sm) {
         put_pixel_scaled(pio, sm, r, g, b);
 }
 
+// MODE 4 — VU Meter with Heatmap Color
+// Length of bar = Volume
+// Color of bar  = Volume (Blue is quiet, Red is loud)
+
+static void mode_vu_heat_combo(PIO pio, uint sm) {
+    static float smooth = 0;
+    
+    uint16_t raw = adc_hw->result;
+    int centered = (int)raw - 1800;
+    if (centered < 0) centered = -centered;
+
+    smooth = smooth * 0.85f + centered * 0.15f;
+    
+    float level = smooth / 1000.0f;
+    if (level < 0) level = 0;
+    if (level > 1) level = 1;
+
+    int pixel_height = (int)(level * LED_COUNT);
+
+    uint8_t r = (uint8_t)(level * 255);
+    uint8_t g = (uint8_t)(level * 180);
+    uint8_t b = (uint8_t)((1.0f - level) * 120);
+
+    for (int i = 0; i < LED_COUNT; i++) {
+        if (i < pixel_height) {
+            put_pixel_scaled(pio, sm, r, g, b);
+        } else {
+            put_pixel_scaled(pio, sm, 0, 0, 0);
+        }
+    }
+}
 
 // MAIN
 
 int main() {
     stdio_init_all();
     srand((unsigned) time_us_32());
-
-    // LED Init
     PIO pio = pio0;
     const uint sm = 0;
     uint offset = pio_add_program(pio, &ws2812_program);
     ws2812_program_init(pio, sm, offset, LED_PIN, 800000, IS_RGBW);
-
-    // Button Init
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
-
-    // ADC Free-Run Init
     adc_init();
     adc_hw->cs = ADC_CS_EN_BITS;
     gpio_set_function(MIC_GPIO, GPIO_FUNC_NULL);
@@ -148,7 +171,7 @@ int main() {
         if (!gpio_get(BUTTON_PIN)) {
             sleep_ms(40);
             if (!gpio_get(BUTTON_PIN)) {
-                mode = (mode + 1) % 3;  // 0-2 only
+                mode = (mode + 1) % 4;  // 0-2 only
                 while (!gpio_get(BUTTON_PIN)) sleep_ms(10);
             }
         }
@@ -159,6 +182,8 @@ int main() {
             mode_rainbow_vu(pio, sm);
         else if (mode == 2)
             mode_heat(pio, sm);
+        else if (mode == 3)
+        mode_vu_heat_combo(pio, sm);
 
         sleep_ms(20);
     }
